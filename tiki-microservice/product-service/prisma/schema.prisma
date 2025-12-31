@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  category_id   Int       @id @default(autoincrement())
+  name          String
+  slug          String    @unique
+  description   String?   @db.Text
+  image_url     String?
+  parent_id     Int?
+  is_active     Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  
+  parent        Category?  @relation("CategoryToCategory", fields: [parent_id], references: [category_id])
+  children      Category[] @relation("CategoryToCategory")
+  products      Product[]
+  
+  @@index([slug])
+  @@index([parent_id])
+}
+
+model Product {
+  product_id        Int       @id @default(autoincrement())
+  name              String
+  slug              String    @unique
+  description       String?   @db.Text
+  short_description String?   @db.Text
+  price             Decimal   @db.Decimal(10, 2)
+  original_price    Decimal?  @db.Decimal(10, 2)
+  discount_percent  Int       @default(0)
+  quantity_in_stock Int       @default(0)
+  sold_count        Int       @default(0)
+  view_count        Int       @default(0)
+  rating_average    Decimal   @default(0) @db.Decimal(2, 1)
+  review_count      Int       @default(0)
+  thumbnail         String?
+  is_active         Boolean   @default(true)
+  is_featured       Boolean   @default(false)
+  brand             String?
+  category_id       Int
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  
+  category          Category  @relation(fields: [category_id], references: [category_id])
+  images            ProductImage[]
+  specifications    ProductSpecification[]
+  
+  @@index([slug])
+  @@index([category_id])
+  @@index([is_active, is_featured])
+}
+
+model ProductImage {
+  image_id    Int       @id @default(autoincrement())
+  product_id  Int
+  image_url   String
+  is_primary  Boolean   @default(false)
+  position    Int       @default(0)
+  
+  product     Product   @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+  
+  @@index([product_id])
+}
+
+model ProductSpecification {
+  spec_id     Int       @id @default(autoincrement())
+  product_id  Int
+  name        String
+  value       String
+  
+  product     Product   @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+  
+  @@index([product_id])
+}

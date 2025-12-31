@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Cart {
+  cart_id     Int       @id @default(autoincrement())
+  user_id     Int
+  product_id  Int
+  quantity    Int       @default(1)
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  
+  @@unique([user_id, product_id])
+  @@index([user_id])
+}
+
+model Address {
+  address_id    Int       @id @default(autoincrement())
+  user_id       Int
+  full_name     String
+  phone         String
+  province      String
+  district      String
+  ward          String
+  street        String
+  is_default    Boolean   @default(false)
+  created_at    DateTime  @default(now())
+  
+  orders        Order[]
+  
+  @@index([user_id])
+}
+
+model Order {
+  order_id          Int       @id @default(autoincrement())
+  order_code        String    @unique
+  user_id           Int
+  address_id        Int
+  
+  shipping_name     String
+  shipping_phone    String
+  shipping_address  String
+  
+  subtotal          Decimal   @db.Decimal(10, 2)
+  shipping_fee      Decimal   @default(0) @db.Decimal(10, 2)
+  discount_amount   Decimal   @default(0) @db.Decimal(10, 2)
+  total_amount      Decimal   @db.Decimal(10, 2)
+  
+  payment_method    String
+  payment_status    String    @default("pending")
+  
+  status            String    @default("pending")
+  note              String?   @db.Text
+  
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  
+  address           Address   @relation(fields: [address_id], references: [address_id])
+  items             OrderItem[]
+  
+  @@index([user_id])
+  @@index([order_code])
+  @@index([status])
+}
+
+model OrderItem {
+  order_item_id Int       @id @default(autoincrement())
+  order_id      Int
+  product_id    Int
+  
+  product_name  String
+  product_image String?
+  price         Decimal   @db.Decimal(10, 2)
+  quantity      Int
+  
+  order         Order     @relation(fields: [order_id], references: [order_id], onDelete: Cascade)
+  
+  @@index([order_id])
+}

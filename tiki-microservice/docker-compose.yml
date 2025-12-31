@@ -1,0 +1,235 @@
+services:
+  # ==================== DATABASES ====================
+  
+  auth-db:
+    image: mysql:8.0
+    container_name: tiki-auth-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: tiki_auth_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - auth-db-data:/var/lib/mysql
+    networks:
+      - tiki-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+
+  product-db:
+    image: mysql:8.0
+    container_name: tiki-product-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: tiki_product_db
+    ports:
+      - "3307:3306"
+    volumes:
+      - product-db-data:/var/lib/mysql
+    networks:
+      - tiki-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+
+  order-db:
+    image: mysql:8.0
+    container_name: tiki-order-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: tiki_order_db
+    ports:
+      - "3308:3306"
+    volumes:
+      - order-db-data:/var/lib/mysql
+    networks:
+      - tiki-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+
+  # ==================== REDIS CACHE ====================
+  
+  redis:
+    image: redis:7-alpine
+    container_name: tiki-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - tiki-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+
+  # ==================== MICROSERVICES ====================
+  
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    restart: always
+    environment:
+      DATABASE_URL: mysql://root:root123456@auth-db:3306/tiki_auth_db
+      JWT_SECRET: tiki-auth-secret-2024
+      SERVICE_PORT: 3001
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - tiki-network
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        npx prisma db seed || true &&
+        node dist/main
+      "
+
+  product-service:
+    build:
+      context: ./product-service
+      dockerfile: Dockerfile
+    container_name: product-service
+    restart: always
+    environment:
+      DATABASE_URL: mysql://root:root123456@product-db:3306/tiki_product_db
+      SERVICE_PORT: 3002
+      NODE_ENV: production
+    ports:
+      - "3002:3002"
+    depends_on:
+      product-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tiki-network
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        npx prisma db seed || true &&
+        node dist/main
+      "
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    restart: always
+    environment:
+      DATABASE_URL: mysql://root:root123456@order-db:3306/tiki_order_db
+      PRODUCT_SERVICE_HOST: product-service
+      PRODUCT_SERVICE_PORT: 3002
+      SERVICE_PORT: 3003
+      NODE_ENV: production
+    ports:
+      - "3003:3003"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+    networks:
+      - tiki-network
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        npx prisma db seed || true &&
+        node dist/main
+      "
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    restart: always
+    environment:
+      AUTH_SERVICE_HOST: auth-service
+      AUTH_SERVICE_PORT: 3001
+      PRODUCT_SERVICE_HOST: product-service
+      PRODUCT_SERVICE_PORT: 3002
+      ORDER_SERVICE_HOST: order-service
+      ORDER_SERVICE_PORT: 3003
+      PORT: 8080
+      NODE_ENV: production
+    ports:
+      - "8080:8080"
+    depends_on:
+      - auth-service
+      - product-service
+      - order-service
+    networks:
+      - tiki-network
+
+volumes:
+  auth-db-data:
+    driver: local
+  product-db-data:
+    driver: local
+  order-db-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  tiki-network:
+    driver: bridge
+
+# ==================== USAGE ====================
+# 
+# Build and start all services:
+#   docker-compose up -d --build
+#
+# View logs:
+#   docker-compose logs -f
+#   docker-compose logs -f api-gateway
+#   docker-compose logs -f auth-service
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes (WARNING: DELETES ALL DATA):
+#   docker-compose down -v
+#
+# Restart a specific service:
+#   docker-compose restart auth-service
+#
+# View running containers:
+#   docker-compose ps
+#
+# Execute command in container:
+#   docker-compose exec auth-service sh
+#   docker-compose exec auth-db mysql -uroot -proot123456
